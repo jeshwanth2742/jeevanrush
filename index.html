@@ -1,250 +1,435 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Dino Runner</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Dino — Rebuilt with your assets</title>
   <style>
-    body {
-      margin: 0;
-      background: #fff;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      height: 100vh;
-    }
-    canvas {
-      border: 1px solid #ccc;
-      background: #fff;
-    }
+    :root { --canvas-w:1100px; --canvas-h:600px; }
+    html,body{height:100%;margin:0;font-family:Inter,Arial,sans-serif;background:#f3f4f6;display:flex;align-items:center;justify-content:center}
+    #wrap{width:var(--canvas-w);position:relative}
+    canvas{width:100%;height:auto;display:block;background:#fff;border-radius:8px;box-shadow:0 12px 36px rgba(10,10,20,0.08);border:1px solid #e6e9ef}
+    .overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
+    .panel{pointer-events:auto;background:rgba(255,255,255,0.98);padding:18px;border-radius:10px;width:420px;text-align:center;box-shadow:0 12px 34px rgba(10,10,20,0.08)}
+    button{cursor:pointer;padding:10px 16px;border-radius:8px;border:1px solid #d0d6df;background:#fff;font-size:15px}
+    #loadingBar{height:10px;background:#eef3fb;border-radius:6px;overflow:hidden;margin:12px auto;width:320px}
+    #loadingFill{height:100%;width:0%;background:#2b8be6;transition:width .12s linear}
+    #errors{color:#b00020;margin-top:10px;text-align:left;max-height:120px;overflow:auto;font-size:13px}
+    #debug{font-size:13px;color:#333;margin-top:8px;text-align:left;white-space:pre-line;max-height:120px;overflow:auto}
+    @media (max-width:480px){ .panel{width:92%} }
   </style>
 </head>
 <body>
-  <canvas id="game" width="1100" height="600"></canvas>
+  <div id="wrap">
+    <canvas id="gameCanvas" width="1100" height="600"></canvas>
 
-  <script>
-    const canvas = document.getElementById("game");
-    const ctx = canvas.getContext("2d");
+    <div class="overlay" id="overlay">
+      <div class="panel" id="menu">
+        <h2 id="title">Dino Runner</h2>
+        <div id="hint">Loading assets — please wait</div>
 
-    const SCREEN_WIDTH = canvas.width;
-    const SCREEN_HEIGHT = canvas.height;
+        <div id="loadingBar"><div id="loadingFill"></div></div>
+        <div id="loadingText" style="font-size:13px;margin-top:6px">0 / 0</div>
 
-    // ========== Load Images ==========
-    const images = {
-      dinoRun: [new Image(), new Image()],
-      dinoJump: new Image(),
-      dinoDuck: [new Image(), new Image()],
-      smallCactus: [new Image(), new Image(), new Image()],
-      largeCactus: [new Image(), new Image(), new Image()],
-      bird: [new Image(), new Image()],
-      cloud: new Image(),
-      bg: new Image()
-    };
+        <div style="height:8px"></div>
+        <div style="display:flex;gap:10px;justify-content:center">
+          <button id="startBtn" disabled>Start</button>
+          <button id="pauseBtn" disabled>Pause</button>
+        </div>
 
-    images.dinoRun[0].src = "assets/Dino/DinoRun1.png";
-    images.dinoRun[1].src = "assets/Dino/DinoRun2.png";
-    images.dinoJump.src   = "assets/Dino/DinoJump.png";
-    images.dinoDuck[0].src = "assets/Dino/DinoDuck1.png";
-    images.dinoDuck[1].src = "assets/Dino/DinoDuck2.png";
+        <div id="errors"></div>
+        <div id="debug"></div>
+      </div>
+    </div>
+  </div>
 
-    images.smallCactus[0].src = "assets/Cactus/SmallCactus1.png";
-    images.smallCactus[1].src = "assets/Cactus/SmallCactus2.png";
-    images.smallCactus[2].src = "assets/Cactus/SmallCactus3.png";
+<script>
+/* ===========================
+   CONFIG: asset paths (match your repo)
+   Your structure:
+     assets/
+       Dino/
+       Cactus/
+       Bird/
+       Others/
+   =========================== */
+const ASSETS = {
+  RUNNING: ["assets/Dino/DinoRun1.png","assets/Dino/DinoRun2.png"],
+  JUMPING: "assets/Dino/DinoJump.png",
+  DUCKING: ["assets/Dino/DinoDuck1.png","assets/Dino/DinoDuck2.png"],
+  // optional extras the repo has:
+  DEAD: "assets/Dino/DinoDead.png",
+  START: "assets/Dino/DinoStart.png",
 
-    images.largeCactus[0].src = "assets/Cactus/LargeCactus1.png";
-    images.largeCactus[1].src = "assets/Cactus/LargeCactus2.png";
-    images.largeCactus[2].src = "assets/Cactus/LargeCactus3.png";
+  SMALL_CACTUS: ["assets/Cactus/SmallCactus1.png","assets/Cactus/SmallCactus2.png","assets/Cactus/SmallCactus3.png"],
+  LARGE_CACTUS: ["assets/Cactus/LargeCactus1.png","assets/Cactus/LargeCactus2.png","assets/Cactus/LargeCactus3.png"],
 
-    images.bird[0].src = "assets/Bird/Bird1.png";
-    images.bird[1].src = "assets/Bird/Bird2.png";
+  BIRD: ["assets/Bird/Bird1.png","assets/Bird/Bird2.png"],
 
-    images.cloud.src = "assets/Others/Cloud.png";
-    images.bg.src    = "assets/Others/Track.png";
+  CLOUD: "assets/Others/Cloud.png",
+  BG: "assets/Others/Track.png"
+};
 
-    // ========== Scaling Info ==========
-    const SCALE = {
-      dinoRun: { w: 88, h: 94 },
-      dinoJump: { w: 88, h: 94 },
-      dinoDuck: { w: 118, h: 60 },
-      smallCactus: [
-        { w: 40, h: 71 },
-        { w: 99, h: 95 },
-        { w: 105, h: 71 }
-      ],
-      largeCactus: [
-        { w: 48, h: 95 },
-        { w: 99, h: 95 },
-        { w: 102, h: 95 }
-      ],
-      bird: { w: 92, h: 80 },
-      cloud: { w: 90, h: 30 },
-      bg: { w: 1280, h: 20 }
-    };
+/* target draw sizes (original expected small sizes) */
+const SIZE = {
+  RUNNING: {w:88,h:94},
+  JUMPING: {w:88,h:94},
+  DUCKING: {w:118,h:60},
+  SMALL_CACTUS: [{w:40,h:71},{w:99,h:95},{w:105,h:71}],
+  LARGE_CACTUS: [{w:48,h:95},{w:99,h:95},{w:102,h:95}],
+  BIRD: {w:92,h:80},
+  CLOUD: {w:90,h:30},
+  BG: {w:1100,h:20}
+};
 
-    // ========== Classes ==========
-    class Dinosaur {
-      constructor() {
-        this.x = 80;
-        this.y = 310;
-        this.width = SCALE.dinoRun.w;
-        this.height = SCALE.dinoRun.h;
-        this.duck = false;
-        this.jump = false;
-        this.stepIndex = 0;
-        this.jumpVel = 8.5;
-      }
+/* DOM */
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+const overlay = document.getElementById('overlay');
+const startBtn = document.getElementById('startBtn');
+const pauseBtn = document.getElementById('pauseBtn');
+const loadingFill = document.getElementById('loadingFill');
+const loadingText = document.getElementById('loadingText');
+const errorsDom = document.getElementById('errors');
+const debugDom = document.getElementById('debug');
+const hintDom = document.getElementById('hint');
 
-      update(keys) {
-        if (this.jump) {
-          this.y -= this.jumpVel * 4;
-          this.jumpVel -= 0.8;
-          if (this.jumpVel < -8.5) {
-            this.jump = false;
-            this.jumpVel = 8.5;
-          }
-        } else if (keys["ArrowUp"]) {
-          this.jump = true;
-          this.duck = false;
-        } else if (keys["ArrowDown"]) {
-          this.duck = true;
-          this.jump = false;
+/* state */
+let assets = {};         // will store loaded imgs (arrays or single)
+let loadErrors = [];
+let gameRunning = false, paused = false;
+let player, cloud;
+let obstacles = [];
+let keys = {};
+let gameSpeed = 12;
+let points = 0;
+let lastTime = 0;
+let lastSpawn = 0;
+
+/* ---------------------------
+   Preload function (preserves array order)
+   --------------------------- */
+function preload(list, onProgress){
+  return new Promise(resolve => {
+    const flat = [];
+    Object.keys(list).forEach(k=>{
+      const v = list[k];
+      if(Array.isArray(v)) v.forEach(p=>flat.push({k,path:p}));
+      else flat.push({k,path:v});
+    });
+    const total = flat.length;
+    if(total===0) return resolve({ok:true});
+    let done = 0;
+    loadErrors = [];
+
+    // helper to push into assets in same order as ASSETS
+    flat.forEach(entry=>{
+      const img = new Image();
+      img.src = entry.path;
+      img.onload = ()=> {
+        if(Array.isArray(ASSETS[entry.k])){
+          assets[entry.k] = assets[entry.k] || [];
+          assets[entry.k].push(img);
         } else {
-          this.duck = false;
+          assets[entry.k] = img;
         }
-
-        this.stepIndex++;
-        if (this.stepIndex >= 10) this.stepIndex = 0;
-      }
-
-      draw() {
-        if (this.jump) {
-          ctx.drawImage(images.dinoJump, this.x, this.y, SCALE.dinoJump.w, SCALE.dinoJump.h);
-        } else if (this.duck) {
-          ctx.drawImage(images.dinoDuck[Math.floor(this.stepIndex / 5)], this.x, this.y + 30, SCALE.dinoDuck.w, SCALE.dinoDuck.h);
-        } else {
-          ctx.drawImage(images.dinoRun[Math.floor(this.stepIndex / 5)], this.x, this.y, SCALE.dinoRun.w, SCALE.dinoRun.h);
-        }
-      }
-    }
-
-    class Cloud {
-      constructor() {
-        this.x = SCREEN_WIDTH + Math.random() * 1000;
-        this.y = 50 + Math.random() * 50;
-      }
-      update() {
-        this.x -= gameSpeed;
-        if (this.x < -SCALE.cloud.w) {
-          this.x = SCREEN_WIDTH + Math.random() * 2500;
-          this.y = 50 + Math.random() * 50;
-        }
-      }
-      draw() {
-        ctx.drawImage(images.cloud, this.x, this.y, SCALE.cloud.w, SCALE.cloud.h);
-      }
-    }
-
-    class Obstacle {
-      constructor(imgArr, sizes) {
-        this.type = Math.floor(Math.random() * imgArr.length);
-        this.img = imgArr[this.type];
-        this.size = sizes[this.type];
-        this.x = SCREEN_WIDTH;
-        this.y = SCREEN_HEIGHT - this.size.h - 75;
-      }
-      update() {
-        this.x -= gameSpeed;
-      }
-      draw() {
-        ctx.drawImage(this.img, this.x, this.y, this.size.w, this.size.h);
-      }
-    }
-
-    class Bird extends Obstacle {
-      constructor() {
-        super(images.bird, [SCALE.bird, SCALE.bird]);
-        this.y = 250;
-        this.index = 0;
-      }
-      draw() {
-        ctx.drawImage(images.bird[Math.floor(this.index / 5)], this.x, this.y, SCALE.bird.w, SCALE.bird.h);
-        this.index = (this.index + 1) % 10;
-      }
-    }
-
-    // ========== Game State ==========
-    let gameSpeed = 10;
-    let xPosBg = 0;
-    let points = 0;
-    let player = new Dinosaur();
-    let cloud = new Cloud();
-    let obstacles = [];
-    let keys = {};
-
-    // ========== Score ==========
-    function drawScore() {
-      ctx.font = "20px Arial";
-      ctx.fillStyle = "black";
-      ctx.fillText("Points: " + points, 900, 50);
-      points++;
-      if (points % 100 === 0) gameSpeed++;
-    }
-
-    // ========== Background ==========
-    function drawBackground() {
-      const imgW = SCALE.bg.w;
-      ctx.drawImage(images.bg, xPosBg, 380, imgW, SCALE.bg.h);
-      ctx.drawImage(images.bg, imgW + xPosBg, 380, imgW, SCALE.bg.h);
-      if (xPosBg <= -imgW) xPosBg = 0;
-      xPosBg -= gameSpeed;
-    }
-
-    // ========== Main Loop ==========
-    function loop() {
-      ctx.clearRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
-
-      drawBackground();
-      cloud.update();
-      cloud.draw();
-
-      player.update(keys);
-      player.draw();
-
-      if (obstacles.length === 0) {
-        const choice = Math.floor(Math.random() * 3);
-        if (choice === 0) obstacles.push(new Obstacle(images.smallCactus, SCALE.smallCactus));
-        else if (choice === 1) obstacles.push(new Obstacle(images.largeCactus, SCALE.largeCactus));
-        else obstacles.push(new Bird());
-      }
-
-      obstacles.forEach((obs, i) => {
-        obs.update();
-        obs.draw();
-        if (player.x < obs.x + obs.size?.w && player.x + player.width > obs.x &&
-            player.y < obs.y + obs.size?.h && player.y + player.height > obs.y) {
-          alert("Game Over! Score: " + points);
-          document.location.reload();
-        }
-        if (obs.x < -100) obstacles.splice(i, 1);
-      });
-
-      drawScore();
-      requestAnimationFrame(loop);
-    }
-
-    // ========== Input ==========
-    document.addEventListener("keydown", e => keys[e.key] = true);
-    document.addEventListener("keyup", e => keys[e.key] = false);
-
-    // Start game once everything is loaded
-    let loadedCount = 0;
-    const totalImages = Object.values(images).flat().length;
-    Object.values(images).flat().forEach(img => {
-      img.onload = () => {
-        loadedCount++;
-        if (loadedCount === totalImages) loop();
+        done++;
+        onProgress(done, total, entry.path, true);
+        if(done + loadErrors.length === total) resolve({ok: loadErrors.length===0, errors: loadErrors});
+      };
+      img.onerror = (e)=>{
+        loadErrors.push(entry.path);
+        console.error('Failed to load', entry.path, e);
+        done++;
+        onProgress(done, total, entry.path, false);
+        if(done + loadErrors.length === total) resolve({ok:false, errors: loadErrors});
       };
     });
-  </script>
+  });
+}
+
+/* ---------------------------
+   Utilities
+   --------------------------- */
+function rand(min,max){ return Math.floor(Math.random()*(max-min+1))+min; }
+function rectsCollide(a,b,pad=0){
+  return a.x + pad < b.x + b.w &&
+         a.x + a.w - pad > b.x &&
+         a.y + pad < b.y + b.h &&
+         a.y + a.h - pad > b.y;
+}
+
+/* ===========================
+   Game classes
+   =========================== */
+class Dino {
+  constructor(){
+    this.x = 80;
+    this.groundY = 310;
+    this.duckY = 340;
+    this.y = this.groundY;
+    this.state = 'run'; // run, duck, jump
+    this.step = 0;
+    this.jumpVel = 0;
+    this.jumpPower = 12;
+    this.gravity = 0.8;
+    this.w = SIZE.RUNNING.w;
+    this.h = SIZE.RUNNING.h;
+  }
+  update(dt){
+    // input -> state
+    if(this.state !== 'jump'){
+      if(keys['ArrowDown']) this.state = 'duck';
+      else if(keys[' '] || keys['ArrowUp'] || keys['Spacebar']) {
+        this.state = 'jump';
+        this.jumpVel = -this.jumpPower;
+      } else this.state = 'run';
+    }
+    // physics
+    if(this.state === 'jump'){
+      this.jumpVel += this.gravity;
+      this.y += this.jumpVel;
+      if(this.y >= this.groundY){
+        this.y = this.groundY;
+        this.state = 'run';
+        this.jumpVel = 0;
+      }
+      this.w = SIZE.JUMPING.w; this.h = SIZE.JUMPING.h;
+    } else if(this.state === 'duck'){
+      this.y = this.duckY;
+      this.w = SIZE.DUCKING.w; this.h = SIZE.DUCKING.h;
+    } else {
+      this.y = this.groundY;
+      this.w = SIZE.RUNNING.w; this.h = SIZE.RUNNING.h;
+    }
+    this.step = (this.step + 1) % 20;
+  }
+  draw(){
+    // fallback box if assets missing
+    if(!assets.RUNNING){
+      ctx.fillStyle='#111'; ctx.fillRect(this.x,this.y,60,60);
+      return;
+    }
+    if(this.state === 'jump'){
+      if(assets.JUMPING) ctx.drawImage(assets.JUMPING, this.x, this.y, SIZE.JUMPING.w, SIZE.JUMPING.h);
+    } else if(this.state === 'duck'){
+      const f = Math.floor(this.step/10);
+      const img = assets.DUCKING && assets.DUCKING[f] ? assets.DUCKING[f] : assets.RUNNING[0];
+      ctx.drawImage(img, this.x, this.y, SIZE.DUCKING.w, SIZE.DUCKING.h);
+    } else {
+      const f = Math.floor(this.step/10);
+      const img = assets.RUNNING && assets.RUNNING[f] ? assets.RUNNING[f] : null;
+      if(img) ctx.drawImage(img, this.x, this.y, SIZE.RUNNING.w, SIZE.RUNNING.h);
+    }
+  }
+  rect(){ return {x:this.x,y:this.y,w:this.w,h:this.h}; }
+}
+
+class Cloud {
+  constructor(){ this.reset(); }
+  reset(){ this.x = W + rand(300,1100); this.y = rand(40,120); this.w = SIZE.CLOUD.w; this.h = SIZE.CLOUD.h; }
+  update(speed){ this.x -= speed*0.45; if(this.x < -this.w) this.reset(); }
+  draw(){ if(assets.CLOUD) ctx.drawImage(assets.CLOUD, this.x, this.y, this.w, this.h); }
+}
+
+class Obstacle {
+  constructor(imgArr,sizeArr,yOverride=null){
+    this.type = rand(0,imgArr.length-1);
+    this.img = imgArr[this.type];
+    this.w = sizeArr[this.type].w;
+    this.h = sizeArr[this.type].h;
+    this.x = W + 10;
+    this.y = (yOverride!==null) ? yOverride : (H - this.h - 75);
+  }
+  update(speed){ this.x -= speed; }
+  draw(){ if(this.img) ctx.drawImage(this.img, this.x, this.y, this.w, this.h); }
+  rect(){ return {x:this.x,y:this.y,w:this.w,h:this.h}; }
+}
+
+class Bird extends Obstacle {
+  constructor(){
+    super(assets.BIRD, [SIZE.BIRD, SIZE.BIRD]);
+    this.y = 250;
+    this.frame = 0;
+  }
+  update(speed){ super.update(speed); this.frame = (this.frame + 1) % 10; this.img = assets.BIRD[Math.floor(this.frame/5)]; }
+}
+
+/* ===========================
+   Game logic
+   =========================== */
+function spawnObstacle(){
+  const choice = rand(0,2);
+  if(choice===0) obstacles.push(new Obstacle(assets.SMALL_CACTUS, SIZE.SMALL_CACTUS));
+  else if(choice===1) obstacles.push(new Obstacle(assets.LARGE_CACTUS, SIZE.LARGE_CACTUS));
+  else obstacles.push(new Bird());
+}
+
+function resetGame(){
+  gameSpeed = 12;
+  points = 0;
+  obstacles = [];
+  lastSpawn = performance.now();
+  spawnInterval = 1200;
+  player = new Dino();
+  cloud = new Cloud();
+}
+
+/* draw track / background */
+let bgX = 0;
+function drawBackground(){
+  if(!assets.BG) return;
+  const bw = SIZE.BG.w; const bh = SIZE.BG.h;
+  // draw two copies to tile horizontally
+  ctx.drawImage(assets.BG, bgX, H - 70, bw, bh);
+  ctx.drawImage(assets.BG, bgX + bw, H - 70, bw, bh);
+  bgX -= gameSpeed;
+  if(bgX <= -bw) bgX = 0;
+}
+
+/* score HUD */
+function drawScore(dt){
+  points += Math.round(dt * 0.01);
+  ctx.font = "20px Arial";
+  ctx.fillStyle = "#000";
+  ctx.fillText("Points: " + points, W - 160, 40);
+}
+
+/* main loop */
+let spawnInterval = 1200;
+function loop(ts){
+  if(!lastTime) lastTime = ts;
+  const dt = ts - lastTime; lastTime = ts;
+  if(!gameRunning || paused) return; // stops loop; resume will re-request
+
+  // clear
+  ctx.clearRect(0,0,W,H); ctx.fillStyle = '#fff'; ctx.fillRect(0,0,W,H);
+
+  // background
+  drawBackground();
+
+  // spawn obstacles
+  if(performance.now() - lastSpawn > spawnInterval){
+    spawnObstacle();
+    lastSpawn = performance.now();
+    spawnInterval = rand(900,2000);
+  }
+
+  // update/draw cloud
+  if(cloud){ cloud.update(gameSpeed); cloud.draw(); }
+
+  // update/draw player
+  player.update(dt);
+  player.draw();
+
+  // obstacles
+  for(let i = obstacles.length - 1; i >= 0; i--){
+    const ob = obstacles[i];
+    ob.update(gameSpeed);
+    ob.draw();
+    // remove off-screen
+    if(ob.x + ob.w < -50) obstacles.splice(i,1);
+    // collision
+    if(rectsCollide(player.rect(), ob.rect(), 6)){
+      // stop and show menu (game over)
+      gameRunning = false;
+      showMenu(true);
+      return;
+    }
+  }
+
+  // HUD
+  drawScore(dt);
+
+  requestAnimationFrame(loop);
+}
+
+/* ===========================
+   Menu / UI
+   =========================== */
+function showMenu(isRestart=false){
+  overlay.style.display = 'flex';
+  document.getElementById('title').innerText = isRestart ? 'Game Over' : 'Dino Runner';
+  hintDom.innerHTML = isRestart ? `Score: <strong>${points}</strong><br>Press Space or click Restart` : 'Press Space or click Start';
+  startBtn.disabled = loadErrors.length > 0;
+  pauseBtn.disabled = !gameRunning && !isRestart;
+  debugDom.innerText = `Speed: ${gameSpeed}\nObstacles: ${obstacles.length}\nAssets loaded: ${Object.keys(assets).length}\nMissing: ${loadErrors.length ? loadErrors.join(', ') : 'none'}`;
+}
+function hideMenu(){ overlay.style.display = 'none'; }
+
+/* ===========================
+   Input
+   =========================== */
+window.addEventListener('keydown',(e)=> {
+  keys[e.key] = true;
+  if(!gameRunning && (e.key === ' ' || e.key === 'Spacebar' || e.key === 'ArrowUp')) start();
+});
+window.addEventListener('keyup',(e)=> keys[e.key] = false);
+
+startBtn.addEventListener('click', ()=> start());
+pauseBtn.addEventListener('click', ()=>{
+  if(!gameRunning) return;
+  paused = !paused;
+  pauseBtn.innerText = paused ? 'Resume' : 'Pause';
+  if(!paused) { lastTime = 0; requestAnimationFrame(loop); }
+});
+
+/* ===========================
+   Start / reset
+   =========================== */
+function start(){
+  if(loadErrors.length){
+    alert('Missing assets: check menu or console for filenames.');
+    return;
+  }
+  hideMenu();
+  resetGame();
+  gameRunning = true;
+  paused = false;
+  pauseBtn.innerText = 'Pause';
+  lastTime = 0;
+  requestAnimationFrame(loop);
+}
+
+/* ===========================
+   Preload and initialize
+   =========================== */
+function progress(done,total,path,ok){
+  const pct = Math.round((done/total)*100);
+  loadingFill.style.width = pct + '%';
+  loadingText.innerText = `${done} / ${total} (${pct}%)`;
+  debugDom.innerText = `Last: ${path}\nStatus: ${ok ? 'loaded':'failed'}`;
+}
+
+preload(ASSETS, progress).then(result=>{
+  if(!result.ok){
+    errorsDom.innerText = 'Missing files (fix names/paths & redeploy):\n' + result.errors.map(p=>p.split('/').slice(-2).join('/')).join('\n');
+    hintDom.innerText = 'Missing assets — fix and redeploy';
+    console.warn('Missing assets:', result.errors);
+  } else {
+    errorsDom.innerText = '';
+    hintDom.innerText = 'All assets loaded — press Start';
+  }
+
+  // expose loaded arrays in the same property names
+  // (assets already filled by preload)
+  // initialize small non-critical items
+  player = new Dino();
+  cloud = new Cloud();
+
+  startBtn.disabled = result.errors && result.errors.length > 0;
+  pauseBtn.disabled = true;
+
+  // show menu
+  showMenu(false);
+});
+
+/* helpful console tips */
+console.log('If you see missing assets: make sure folder and filenames are exactly:');
+console.log('- assets/Dino/... , assets/Cactus/... , assets/Bird/... , assets/Others/...');
+console.log('Open DevTools → Network to check 404s for missing images.');
+</script>
 </body>
 </html>
 
